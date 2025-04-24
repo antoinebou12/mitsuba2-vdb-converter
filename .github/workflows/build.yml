@@ -18,9 +18,12 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake libboost-dev libboost-system-dev
-          sudo apt-get install -y libtbb-dev libopenvdb-dev libblosc-dev
+          sudo apt-get install -y build-essential cmake
+          sudo apt-get install -y libboost-dev libboost-system-dev
+          sudo apt-get install -y libtbb-dev libblosc-dev
           sudo apt-get install -y libopenexr-dev zlib1g-dev
+          # For Linux we'll use the bundled OpenVDB with X11 dev packages
+          sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
 
       - name: Configure and build C++ executable
         run: |
@@ -58,7 +61,7 @@ jobs:
       
       - name: Install dependencies
         run: |
-          brew install boost tbb blosc openexr zlib openvdb
+          brew install boost tbb c-blosc openexr zlib openvdb
       
       - name: Configure and build C++ executable
         run: |
@@ -94,21 +97,29 @@ jobs:
         with:
           submodules: recursive
       
-      - name: Install vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: '33b22de4aa1fa9e4de5e5daa8ef24905e136cede'
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+        shell: cmd
       
       - name: Install dependencies with vcpkg
         run: |
-          vcpkg install openvdb:x64-windows openexr:x64-windows tbb:x64-windows blosc:x64-windows zlib:x64-windows boost-system:x64-windows
+          .\vcpkg\vcpkg install openvdb:x64-windows
+          .\vcpkg\vcpkg install openexr:x64-windows
+          .\vcpkg\vcpkg install tbb:x64-windows
+          .\vcpkg\vcpkg install blosc:x64-windows
+          .\vcpkg\vcpkg install zlib:x64-windows
+          .\vcpkg\vcpkg install boost-system:x64-windows
+        shell: cmd
       
       - name: Configure and build C++ executable
         shell: cmd
         run: |
           mkdir build
           cd build
-          cmake .. -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake .. -DCMAKE_TOOLCHAIN_FILE=%CD%\..\vcpkg\scripts\buildsystems\vcpkg.cmake
           cmake --build . --config Release
       
       - name: Set up Python
@@ -121,19 +132,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install wheel setuptools numpy pybind11
       
-      - name: Modify setup.py for vcpkg
-        shell: pwsh
-        run: |
-          # Add VCPKG_ROOT environment variable for the build
-          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $GITHUB_ENV
-      
       - name: Build Python package
         run: |
-          $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
-          $env:PATH += ";$env:VCPKG_ROOT/installed/x64-windows/bin"
+          $env:VCPKG_ROOT = (Resolve-Path .\vcpkg).Path
+          $env:PATH += ";$env:VCPKG_ROOT\installed\x64-windows\bin"
           
-          # Modify the setup.py to look for OpenEXR in the correct location
-          (Get-Content -Path setup.py) -replace "VCPKG_ROOT = .*", "VCPKG_ROOT = '${{ github.workspace }}/vcpkg'" | Set-Content -Path setup.py
+          # Modify the setup.py to point to the correct vcpkg path
+          (Get-Content -Path setup.py) -replace "VCPKG_ROOT = .*", "VCPKG_ROOT = '$env:VCPKG_ROOT'" | Set-Content -Path setup.py
           
           python -m pip install -v .
         shell: pwsh
@@ -142,4 +147,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-cpp-artifacts
-          path: build/Release/convertvdb.exe
+          path: build\Release\convertvdb.exe
