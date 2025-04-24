@@ -19,11 +19,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake
-          sudo apt-get install -y libboost-dev libboost-system-dev
+          sudo apt-get install -y libboost-dev libboost-system-dev libboost-iostreams-dev
           sudo apt-get install -y libtbb-dev libblosc-dev
           sudo apt-get install -y libopenexr-dev zlib1g-dev
           # For Linux we'll use the bundled OpenVDB with X11 dev packages
           sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+          # Install pybind11
+          sudo apt-get install -y python3-pybind11
 
       - name: Configure and build C++ executable
         run: |
@@ -61,13 +63,17 @@ jobs:
       
       - name: Install dependencies
         run: |
-          brew install boost tbb c-blosc openexr zlib openvdb
+          brew install boost tbb c-blosc openexr zlib
+          # Install pybind11
+          brew install pybind11
       
       - name: Configure and build C++ executable
         run: |
           mkdir -p build
           cd build
-          cmake ..
+          # Explicitly set pybind11 path for CMake
+          export PYBIND11_DIR=$(brew --prefix pybind11)
+          cmake -DCMAKE_PREFIX_PATH="$PYBIND11_DIR" ..
           make -j$(sysctl -n hw.ncpu)
       
       - name: Set up Python
@@ -112,6 +118,8 @@ jobs:
           .\vcpkg\vcpkg install blosc:x64-windows
           .\vcpkg\vcpkg install zlib:x64-windows
           .\vcpkg\vcpkg install boost-system:x64-windows
+          .\vcpkg\vcpkg install boost-iostreams:x64-windows
+          .\vcpkg\vcpkg install pybind11:x64-windows
         shell: cmd
       
       - name: Configure and build C++ executable
