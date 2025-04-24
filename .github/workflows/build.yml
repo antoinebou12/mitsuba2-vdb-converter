@@ -11,7 +11,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       
@@ -30,7 +30,7 @@ jobs:
           make -j$(nproc)
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
@@ -44,33 +44,21 @@ jobs:
           python -m pip install .
       
       - name: Upload C++ artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-cpp-artifacts
           path: build/convertvdb
-      
-      - name: Build Python wheel
-        run: |
-          python -m pip install build
-          python -m build --wheel
-      
-      - name: Upload wheel
-        uses: actions/upload-artifact@v3
-        with:
-          name: linux-wheel
-          path: dist/*.whl
 
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       
       - name: Install dependencies
         run: |
-          brew install boost tbb blosc openexr zlib
-          brew install openvdb
+          brew install boost tbb blosc openexr zlib openvdb
       
       - name: Configure and build C++ executable
         run: |
@@ -80,7 +68,7 @@ jobs:
           make -j$(sysctl -n hw.ncpu)
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
@@ -94,26 +82,15 @@ jobs:
           python -m pip install .
       
       - name: Upload C++ artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-cpp-artifacts
           path: build/convertvdb
-      
-      - name: Build Python wheel
-        run: |
-          python -m pip install build
-          python -m build --wheel
-      
-      - name: Upload wheel
-        uses: actions/upload-artifact@v3
-        with:
-          name: macos-wheel
-          path: dist/*.whl
 
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       
@@ -135,7 +112,7 @@ jobs:
           cmake --build . --config Release
       
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       
@@ -147,65 +124,22 @@ jobs:
       - name: Modify setup.py for vcpkg
         shell: pwsh
         run: |
-          $setupContent = Get-Content -Path setup.py -Raw
-          $setupContent = $setupContent -replace "VCPKG_ROOT = .*", "VCPKG_ROOT = '${{ github.workspace }}/vcpkg'"
-          Set-Content -Path setup.py -Value $setupContent
-      
-      - name: Create OpenEXR symlink if needed
-        shell: pwsh
-        run: |
-          $includeDir = "${{ github.workspace }}/vcpkg/installed/x64-windows/include"
-          $openExrDir = "$includeDir/OpenEXR"
-          if (-not (Test-Path "$openExrDir/half.h") -and (Test-Path "$includeDir/half.h")) {
-            New-Item -ItemType Directory -Force -Path $openExrDir
-            New-Item -ItemType SymbolicLink -Path "$openExrDir/half.h" -Target "$includeDir/half.h"
-          }
+          # Add VCPKG_ROOT environment variable for the build
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $GITHUB_ENV
       
       - name: Build Python package
         run: |
           $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
           $env:PATH += ";$env:VCPKG_ROOT/installed/x64-windows/bin"
+          
+          # Modify the setup.py to look for OpenEXR in the correct location
+          (Get-Content -Path setup.py) -replace "VCPKG_ROOT = .*", "VCPKG_ROOT = '${{ github.workspace }}/vcpkg'" | Set-Content -Path setup.py
+          
           python -m pip install -v .
         shell: pwsh
       
       - name: Upload C++ artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-cpp-artifacts
           path: build/Release/convertvdb.exe
-      
-      - name: Build Python wheel
-        shell: pwsh
-        run: |
-          $env:VCPKG_ROOT = "${{ github.workspace }}/vcpkg"
-          $env:PATH += ";$env:VCPKG_ROOT/installed/x64-windows/bin"
-          python -m pip install build
-          python -m build --wheel
-      
-      - name: Upload wheel
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-wheel
-          path: dist/*.whl
-
-  create-release:
-    needs: [build-linux, build-macos, build-windows]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v3
-      
-      - name: Create release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            linux-cpp-artifacts/*
-            macos-cpp-artifacts/*
-            windows-cpp-artifacts/*
-            linux-wheel/*
-            macos-wheel/*
-            windows-wheel/*
-          draft: false
-          prerelease: false
