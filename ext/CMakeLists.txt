@@ -1,29 +1,44 @@
-include(CheckCXXCompilerFlag)
+# ext/CMakeLists.txt
+cmake_minimum_required(VERSION 3.15)
 
-if (NOT IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/openvdb")
-  message(FATAL_ERROR "OpenVDB not found. The project has to be cloned using --recursive (or call git submodule update --init --recursive) ")
+# 1) Make sure the OpenVDB submodule is here
+if (NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/openvdb/CMakeLists.txt")
+  message(FATAL_ERROR
+    "OpenVDB submodule not found!\n"
+    "Please clone with --recursive or run:\n"
+    "  git submodule update --init --recursive")
 endif()
 
-if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-  CHECK_CXX_COMPILER_FLAG("-std=c++14" HAS_CPP14_FLAG)
-  CHECK_CXX_COMPILER_FLAG("-std=c++11" HAS_CPP11_FLAG)
-
-  if (HAS_CPP14_FLAG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14")
-  elseif (HAS_CPP11_FLAG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+# 2) Pick a C++ standard (14 if available, else 11)
+include(CheckCXXCompilerFlag)
+if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR
+    CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+  CHECK_CXX_COMPILER_FLAG("-std=c++14" HAS_CPP14)
+  CHECK_CXX_COMPILER_FLAG("-std=c++11" HAS_CPP11)
+  if (HAS_CPP14)
+    set(CMAKE_CXX_STANDARD 14 CACHE STRING "" FORCE)
+  elseif (HAS_CPP11)
+    set(CMAKE_CXX_STANDARD 11 CACHE STRING "" FORCE)
   endif()
 endif()
 
+# 3) Compiler warning flags
 if (MSVC)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D_CRT_SECURE_NO_WARNINGS")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  add_compile_options(/MP /W4)
+else()
+  add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 endif()
 
-add_subdirectory(openvdb)
-set_property(TARGET openvdb_static PROPERTY FOLDER "dependencies")
-set(OPENVDB_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/openvdb)
-set(OPENVDB_INCLUDE_DIR ${OPENVDB_INCLUDE_DIR} PARENT_SCOPE)
-set(OPENVDB_LIBRARY openvdb_static PARENT_SCOPE)
-set(OPENVDB_LIBRARY openvdb_static)
-set(OPENVDB_LIBRARY ${OPENVDB_LIBRARY} PARENT_SCOPE)
+# 4) Build vendored OpenVDB (but don’t drag its tests/examples into your IDE)
+add_subdirectory(openvdb EXCLUDE_FROM_ALL)
+
+# 5) Export include path and library target to the parent CMake
+set(OPENVDB_INCLUDE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/openvdb"
+    PARENT_SCOPE)
+
+# the OpenVDB CMake defines a target called `openvdb_static`
+set(OPENVDB_LIBRARY
+    openvdb_static
+    PARENT_SCOPE)
