@@ -145,9 +145,6 @@ jobs:
           $env:VCPKG_ROOT = (Resolve-Path .\vcpkg).Path
           $env:PATH += ";$env:VCPKG_ROOT\installed\x64-windows\bin"
           
-          # Modify the setup.py to point to the correct vcpkg path
-          (Get-Content -Path setup.py) -replace "VCPKG_ROOT = .*", "VCPKG_ROOT = '$env:VCPKG_ROOT'" | Set-Content -Path setup.py
-          
           python -m pip install -v .
         shell: pwsh
       

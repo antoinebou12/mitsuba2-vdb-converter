@@ -1,113 +1,114 @@
 import os
 import platform
 import sys
-import subprocess
 import sysconfig
+import subprocess
 from setuptools import setup, find_packages
-from pybind11.setup_helpers import Pybind11Extension, build_ext
+from setuptools.command.build_ext import build_ext
+from pybind11.setup_helpers import Pybind11Extension
 
-# Determine the platform
+# Determine platform
 is_windows = platform.system() == "Windows"
 
-# Custom vcpkg path use os.environ.get('VCPKG_ROOT') or default to current directory
-VCPKG_ROOT = os.environ.get('VCPKG_ROOT', os.path.abspath(os.path.dirname(__file__)))
-
-# Check if OpenEXR is installed in vcpkg
-def check_openexr_installation():
-    openexr_include = os.path.join(VCPKG_ROOT, "installed", "x64-windows", "include", "OpenEXR", "half.h")
-    if os.path.exists(openexr_include):
-        print(f"OpenEXR found at: {openexr_include}")
-        return True
-    else:
-        print(f"OpenEXR NOT found at expected path: {openexr_include}")
-        return False
-
-# Base compiler flags
-extra_compile_args = []
-extra_link_args = []
-
-# Platform-specific adjustments
-if is_windows:
-    # MSVC-compatible flags
-    extra_compile_args = ["/std:c++14", "/O2", "/EHsc", "/bigobj"]
+# Function to detect vcpkg installation
+def find_vcpkg_root():
+    """Find the vcpkg root directory."""
+    # Check environment variable first
+    vcpkg_root = os.environ.get("VCPKG_ROOT")
+    if vcpkg_root and os.path.exists(vcpkg_root):
+        return vcpkg_root
     
-    # Add Windows-specific preprocessor definitions
-    extra_compile_args.extend(["/DNOMINMAX", "/DOPENVDB_DLL", "/DOPENVDB_STATICLIB"])
+    # Check common locations
+    if is_windows:
+        common_paths = [
+            os.path.join(os.path.expanduser("~"), "vcpkg"),
+            os.path.join(os.path.expanduser("~"), "Desktop", "vcpkg"),
+            os.path.join(os.path.expanduser("~"), "OneDrive", "Bureau", "vcpkg"),
+            os.path.join(os.path.expanduser("~"), "Documents", "vcpkg"),
+            os.path.join("C:", "vcpkg"),
+            os.path.join("D:", "vcpkg"),
+        ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                return path
     
-    # Add include path definition for OpenEXR
-    openexr_inc_path = os.path.join(VCPKG_ROOT, "installed", "x64-windows", "include")
-    extra_compile_args.append(f"/I{openexr_inc_path}")
-else:
-    # GCC/Clang flags
-    extra_compile_args = ["-std=c++14", "-O3"]
+    return None
 
-# Try to find Python include directories
-python_include_dirs = [
-    sysconfig.get_path("include"),
-    os.path.join(sys.prefix, "include"),
-    os.path.join(sys.prefix, "include", f"python{sys.version_info.major}.{sys.version_info.minor}"),
-]
+# Try to find vcpkg
+vcpkg_root = find_vcpkg_root()
 
-# Set up include directories - with specific focus on vcpkg paths
+# Base include and library directories
 include_dirs = [
     ".",
     "ext/openvdb",
-    # Explicitly include OpenEXR parent directory to help find OpenEXR/half.h
-    os.path.join(VCPKG_ROOT, "installed", "x64-windows", "include"),
+    *[p for p in [
+        sysconfig.get_path("include"),
+        os.path.join(sys.prefix, "include"),
+        os.path.join(sys.prefix, "include", f"python{sys.version_info.major}.{sys.version_info.minor}"),
+        f"/usr/include/python{sys.version_info.major}.{sys.version_info.minor}",
+        f"/usr/local/include/python{sys.version_info.major}.{sys.version_info.minor}",
+    ] if p]
 ]
 
-# Add Python include directories
-include_dirs.extend([dir for dir in python_include_dirs if os.path.exists(dir)])
+library_dirs = []
+libraries = []
 
-# Check if we have required dependencies
-if is_windows:
-    if not check_openexr_installation():
+# Add vcpkg paths if found
+if vcpkg_root:
+    print(f"VCPKG_ROOT: {vcpkg_root}")
+    
+    # Platform-specific triplet
+    triplet = "x64-windows" if is_windows else "x64-linux"
+    
+    # Add vcpkg include and library directories
+    vcpkg_include = os.path.join(vcpkg_root, "installed", triplet, "include")
+    include_dirs.append(vcpkg_include)
+    
+    if is_windows:
+        vcpkg_lib = os.path.join(vcpkg_root, "installed", triplet, "lib")
+        vcpkg_bin = os.path.join(vcpkg_root, "installed", triplet, "bin")
+        library_dirs.extend([vcpkg_lib, vcpkg_bin])
+    else:
+        vcpkg_lib = os.path.join(vcpkg_root, "installed", triplet, "lib")
+        library_dirs.append(vcpkg_lib)
+    
+    # Check for OpenEXR
+    openexr_header = os.path.join(vcpkg_include, "OpenEXR", "half.h")
+    if not os.path.exists(openexr_header):
+        print(f"OpenEXR NOT found at expected path: {openexr_header}")
         print("WARNING: OpenEXR not found in vcpkg. You may need to install it:")
-        print(f"cd {VCPKG_ROOT} && .\\vcpkg install openexr:x64-windows")
+        install_cmd = f"cd {vcpkg_root} && " + (".\\" if is_windows else "./") + f"vcpkg install openexr:{triplet}"
+        print(install_cmd)
+    else:
+        print(f"Found OpenEXR at {openexr_header}")
 
-# Define source files that need preprocessing
-class SourcePreprocessor:
-    @staticmethod
-    def preprocess_openvdb_types():
-        """Modify OpenVDB Types.h to use correct path for half.h"""
-        types_h_path = os.path.join(os.getcwd(), "ext", "openvdb", "openvdb", "Types.h")
-        if not os.path.exists(types_h_path):
-            print(f"Warning: Could not find {types_h_path} for preprocessing")
-            return
+# Platform-specific flags and libraries
+if is_windows:
+    extra_compile_args = ["/std:c++14", "/O2", "/EHsc", "/bigobj", "/DNOMINMAX"]
+    # Add defines for OpenVDB
+    extra_compile_args.extend(["/DOPENVDB_DLL", "/DOPENVDB_STATICLIB"])
+    
+    # Windows-specific libraries
+    libraries.extend([
+        "openvdb", 
+        "Half-2_5", "Iex-2_5", "IlmThread-2_5", "Imath-2_5",
+        "tbb", "blosc", "zlib"
+    ])
+else:
+    extra_compile_args = ["-std=c++14", "-O3", "-fPIC"]
+    # Linux/macOS libraries
+    libraries.extend([
+        "openvdb", "Half", "Iex", "IlmThread", "Imath",
+        "tbb", "blosc", "z"
+    ])
 
-        with open(types_h_path, 'r') as f:
-            content = f.read()
-        
-        # Replace OpenEXR/half.h with just half.h if needed
-        if 'OpenEXR/half.h' in content:
-            new_content = content.replace('OpenEXR/half.h', 'half.h')
-            try:
-                with open(types_h_path, 'w') as f:
-                    f.write(new_content)
-                print(f"Successfully modified {types_h_path} to use half.h directly")
-            except Exception as e:
-                print(f"Failed to modify {types_h_path}: {e}")
-
-# Try to preprocess OpenVDB source files
-preprocessor = SourcePreprocessor()
-preprocessor.preprocess_openvdb_types()
-
-# Libraries to link against
-libraries = ["openvdb", "Half-2_5", "Iex-2_5", "IlmThread-2_5", "Imath-2_5", "tbb", "blosc", "zlib"]
-
-# Library directories from vcpkg
-library_dirs = [
-    os.path.join(VCPKG_ROOT, "installed", "x64-windows", "lib"),
-    os.path.join(VCPKG_ROOT, "installed", "x64-windows", "bin"),
-]
-
-# Print debug info
 print(f"Platform: {platform.system()}")
-print(f"VCPKG_ROOT: {VCPKG_ROOT}")
 print(f"Include dirs: {include_dirs}")
 print(f"Library dirs: {library_dirs}")
 print(f"Libraries: {libraries}")
 
+# Define the extension
 ext_modules = [
     Pybind11Extension(
         name="volconv._volconv",
@@ -116,11 +117,10 @@ ext_modules = [
         library_dirs=library_dirs,
         libraries=libraries,
         extra_compile_args=extra_compile_args,
-        extra_link_args=extra_link_args,
-        language="c++",
     ),
 ]
 
+# Setup package
 setup(
     name="volconv",
     version="0.1.0",
@@ -130,5 +130,4 @@ setup(
     cmdclass={"build_ext": build_ext},
     install_requires=["pybind11>=2.6.0", "numpy"],
     zip_safe=False,
-    python_requires=">=3.7",
 )
